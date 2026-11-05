@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add `activity create`, `finish-create`, `create-consumer`, `install --upgrade`, `metadata-apply`, `probe`, `current` and `install-state`. These commands require the inproc bridge and a running ShadowBot client; an unavailable bridge is a hard failure with no official-interface fallback.
+- Verify installation completion after native change notifications, save and Python dependency tasks, then compare in-memory dependencies, persisted pins and the installed package version. Preserve unrelated direct dependencies. Lost write responses are not automatically retryable.
+- Move activity metadata maintenance into the bridge: require closed/idle Studio, validate the entire manifest and package identity, back up originals and read back disk contents. Reopening, saving and real-client acceptance are separate steps.
+- Sync and publish use existing `app sync` and `app publish`; metadata maintenance returns its automatic backup directory. See `docs/activity-lifecycle.md` for scope and manual acceptance. This batch has isolated automated coverage; real ShadowBot acceptance is pending.
+
 ## [0.9.1](https://github.com/wn0x00/xbot-cli/compare/v0.9.0...v0.9.1) (2026-10-30)
 
 ### Added

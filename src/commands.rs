@@ -12,6 +12,7 @@ pub fn execute(group: Group, yes: bool) -> Res<CmdOut> {
     use flow_cmds as f;
     use misc_cmds as m;
     match group {
+        Group::Activity(sub) => crate::activity_cmds::prepare(sub)?.execute(),
         Group::Version => Ok((
             json!({"name":"xbot-cli","version":env!("CARGO_PKG_VERSION")}),
             vec![],

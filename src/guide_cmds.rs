@@ -22,6 +22,7 @@ const WIN_REPAIR: &str = include_str!("../skills/xbot-app-dev/references/win-rep
 const CLI_CONTRACT: &str = include_str!("../skills/xbot-app-dev/references/cli-contract.md");
 const OAPI: &str = include_str!("../skills/xbot-app-dev/references/oapi.md");
 const CODEFLOW: &str = include_str!("../skills/xbot-app-dev/references/codeflow.md");
+const ACTIVITY: &str = include_str!("../docs/activity-lifecycle.md");
 const VISUALFLOW: &str = include_str!("../skills/xbot-app-dev/references/visualflow.md");
 const BROWSER: &str = include_str!("../skills/xbot-app-dev/references/browser.md");
 const RECOVERY: &str = include_str!("../skills/xbot-app-dev/references/recovery.md");
@@ -55,6 +56,7 @@ const COLLECTION_ANALYSIS: &str =
     include_str!("../skills/xbot-app-dev/templates/collection-analysis.json");
 
 const TOPICS: &[(&str, &str, &str)] = &[
+    ("activity", "指令库 inproc 生命周期与实机验收清单", ACTIVITY),
     (
         "automation-routing",
         "按失败步骤识别 Web/Windows 业务目标并选择模块",

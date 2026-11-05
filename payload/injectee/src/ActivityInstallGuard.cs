@@ -1,11 +1,29 @@
 using System;
 using System.Reflection;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace XbotInjectee;
 
 internal static class ActivityInstallGuard
 {
+    internal static Task NotifySaveAndWait(object workspace, string code, string version, bool upgrade, CancellationToken token)
+    {
+        var type=workspace.GetType();
+        var notify=type.GetMethod("NotifyActivityAdd",new[]{typeof(string),typeof(string)})
+            ?? throw new NotSupportedException("NotifyActivityAdd unavailable");
+        var changed=type.GetMethod("RaiseWorkspaceChanged")
+            ?? throw new NotSupportedException("RaiseWorkspaceChanged unavailable");
+        var save=type.GetMethod("Save",Type.EmptyTypes) ?? throw new NotSupportedException("Save unavailable");
+        var wait=type.GetMethod("WaitPythonTaskCenterIdle",BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance)
+            ?? throw new NotSupportedException("WaitPythonTaskCenterIdle unavailable");
+        // Download completion precedes dependency refresh. Dirty the native document before saving its pin.
+        notify.Invoke(workspace,new object[]{code,version});
+        changed.Invoke(workspace,new object[]{Enum.Parse(changed.GetParameters()[0].ParameterType,upgrade?"ActivityUpdated":"ActivityInstalled"),true});
+        save.Invoke(workspace,null);
+        return wait.Invoke(workspace,new object[]{token}) as Task ?? throw new InvalidOperationException("dependency completion task unavailable");
+    }
     public static void RequireConsistent(string code, string version, string[] before, string[] memory, string[] disk, string installedVersion)
     {
         var prefix = code + "==";

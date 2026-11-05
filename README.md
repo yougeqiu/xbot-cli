@@ -99,6 +99,8 @@ xbot-cli oapi job logs <jobUuid> --json
 
 ## 文档
 
+指令库生命周期新增 `activity` 命令组，依赖运行中的影刀客户端和 inproc 桥。命令、已验证范围及待执行的实机清单见[指令库生命周期](docs/activity-lifecycle.md)。
+
 - [0.9.1 更新说明](docs/updates/2026-10-30-web-python-xpath.md)：Web Python、XPath、安装环境发现及验证范围
 - [CLI 参考](docs/cli-reference.md)：完整命令、参数语义、输出契约与设计依据
 - [Skill v10 升级说明](docs/skill-v10-upgrade.md)：Skill 模块、依赖与限制

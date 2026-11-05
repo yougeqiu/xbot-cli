@@ -91,6 +91,10 @@ xbot-cli task logs <task-id>
 xbot-cli task stop <task-id>
 ```
 
+## 指令库生命周期(activity)
+
+指令库创建、恢复、消费者安装/升级和元数据维护使用 `activity` 命令组，全部依赖运行中的影刀客户端及 inproc 桥。用 `xbot-cli help activity` 查看命令，`xbot-cli guide activity` 离线阅读协议、备份规则及待执行的实机验收清单。同步和发布保留现有 `app sync` / `app publish` 入口。
+
 ## 企业版备用入口(oapi)
 
 普通应用运行、状态和日志继续使用 `task run/status/logs`，Studio 流程继续使用

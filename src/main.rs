@@ -1,4 +1,5 @@
 //! xbot-cli: parse -> prepare -> guard -> execute -> structured output.
+mod activity_cmds;
 mod app_cmds;
 mod bridge;
 mod cli;
@@ -66,7 +67,11 @@ fn dispatch(cli: Cli, mut path: Vec<String>) -> Res<app_cmds::CmdOut> {
         return Err(plan.confirmation_error());
     }
     if let Some(id) = cli.expect_app.as_deref() {
-        core::require_expected_app(id)?;
+        if path.first().is_some_and(|part| part == "activity") {
+            activity_cmds::require_expected_app(id)?;
+        } else {
+            core::require_expected_app(id)?;
+        }
     }
     plan.execute(cli.yes)
 }

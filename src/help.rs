@@ -108,6 +108,11 @@ fn examples(path: &[&str]) -> &'static [&'static str] {
             "xbot-cli app open <app-id>",
             "xbot-cli app save",
         ],
+        ["activity"] => &[
+            "xbot-cli activity probe",
+            "xbot-cli activity create --name 名称 --code activity_example --description 简介 --dry-run",
+            "xbot-cli activity install --app-id <uuid> --activity-code activity_example --version <version> --name 名称",
+        ],
         ["flow"] => &[
             "xbot-cli flow list",
             "xbot-cli flow get main",

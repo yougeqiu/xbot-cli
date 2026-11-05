@@ -37,6 +37,12 @@ pub(crate) enum Group {
     /// 创建、打开、保存、同步和发布应用
     #[command(subcommand)]
     App(AppSub),
+    /// 指令库生命周期(inproc 桥;需影刀客户端运行中)
+    #[command(
+        subcommand,
+        long_about = "指令库创建、安装与元数据维护。全部依赖 inproc 桥和运行中的影刀客户端;桥不可用时硬失败，不回退官方写接口。同步/发布使用 app sync / app publish，元数据维护自动备份。"
+    )]
+    Activity(crate::activity_cmds::ActivitySub),
     /// 读取、编辑、检查与运行 Studio 流程
     #[command(subcommand)]
     Flow(FlowSub),

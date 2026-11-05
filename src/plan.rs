@@ -8,6 +8,7 @@ use crate::core::{self, BackendError, Res};
 use crate::{app_cmds, commands, extra_cmds, flow_cmds, input, web_cmds};
 
 enum Operation {
+    Activity(crate::activity_cmds::PreparedActivity),
     Command(Group),
     Platform(crate::oapi::PreparedPlatform),
     TaskRun {
@@ -80,6 +81,7 @@ impl PreparedCommand {
 
     pub fn execute(self, yes: bool) -> Res<CmdOut> {
         match self.operation {
+            Operation::Activity(command) => command.execute(),
             Operation::Platform(command) => command.execute(),
             Operation::Command(group) => commands::execute(group, yes),
             Operation::TaskRun {
@@ -194,6 +196,15 @@ pub fn prepare(group: Group) -> Res<PreparedCommand> {
         other => other,
     };
     match group {
+        Group::Activity(sub) => {
+            let command = crate::activity_cmds::prepare(sub)?;
+            let preview = command.preview();
+            Ok(PreparedCommand {
+                operation: Operation::Activity(command),
+                preview,
+                confirmation_required: false,
+            })
+        }
         Group::Oapi(sub) => {
             let command = crate::oapi::prepare(sub)?;
             let preview = command.preview();

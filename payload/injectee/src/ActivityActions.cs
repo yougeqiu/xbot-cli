@@ -61,6 +61,13 @@ internal static class ActivityActions
         var uuid = CreateWorkspace("blank.zip");
         return StudioActions.ConfigureNewConsumer(uuid, name.Trim(), description ?? "");
     }
+    internal static object ApplyMetadata(string appId,string root,System.Text.Json.JsonElement files) => OnUi(() =>
+    {
+        var manager=Service("ShadowBot.Shell.Console.Common.IStudioManager");
+        if(Get(manager,"Studio")!=null || Get(manager,"IsBusy") is not bool busy || busy)
+            throw new InvalidOperationException("Studio must be closed and client idle before metadata maintenance");
+        return (object)ActivityMetadata.ApplyFiles(appId,root,files);
+    });
     private static string CreateWorkspace(string templateName)
     {
         var pending = OnUi(() =>

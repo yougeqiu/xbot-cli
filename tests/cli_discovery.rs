@@ -94,6 +94,7 @@ fn bare_groups_print_bounded_text_help_even_when_piped() {
     for (args, child) in [
         (vec![], "status"),
         (vec!["app"], "open"),
+        (vec!["activity"], "create"),
         (vec!["flow"], "verify"),
         (vec!["flow", "code"], "write"),
         (vec!["tool", "studio"], "call"),

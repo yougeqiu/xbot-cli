@@ -62,6 +62,15 @@ pub fn command_metadata(path: &[&str]) -> CommandMetadata {
         bool,
         &'static str,
     ) = match words.as_slice() {
+        ["activity", "current" | "install-state"] => (&["read"], "studio", false, "none"),
+        ["activity", "finish-create" | "install"] => (&["write"], "studio", true, "none"),
+        ["activity", "metadata-apply"] => {
+            (&["write_files", "backup_files"], "console", true, "none")
+        }
+        ["activity", "create" | "create-consumer"] => {
+            (&["write", "change_studio_context"], "console", true, "none")
+        }
+        ["activity", ..] => (&["read"], "console", false, "none"),
         ["app", "current"] => (&["read"], "studio", false, "none"),
         ["app", "save"] => (&["write"], "studio", true, "none"),
         ["app", "sync"] => (&["write", "close_studio"], "studio", true, "none"),
@@ -359,6 +368,11 @@ fn visual_groups_shape() -> Value {
 
 fn input_shapes(path: &[&str]) -> Value {
     match path {
+        ["activity", "metadata-apply"] => json!({"manifest":{
+            "encoding":["file_path","stdin:-"],"schema":{"type":"object","minProperties":1},
+            "allowed_paths":["package.json","prototype.block.json","prototype.activity.xml","__init__.py",".dev/workspace.state.json",".dev/<name>.flow.json"],
+            "constraints":["Studio closed and idle", "complete JSON objects or XML/init text", "package uuid/robot_type/activity_code immutable", "backup before writes; disk readback; reopen/save still required"]
+        }}),
         ["oapi", "api", "call"] => json!({
             "body":json_input(json!({"type":"object"})),
             "query":json_input(json!({"type":"object","additionalProperties":{"type":["string","number","boolean","null"]}})),

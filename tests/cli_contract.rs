@@ -958,6 +958,527 @@ fn payload_identity() -> String {
     .to_owned()
 }
 
+const ACTIVITY_APP: &str = "11111111-1111-1111-1111-111111111111";
+
+fn activity_snapshot(kind: &str, code: &str, dependencies: Value) -> Value {
+    json!({"ok":true,"detail":"ok","data":{
+        "uuid":ACTIVITY_APP,"name":"test library","description":"test description",
+        "robotType":kind,"activityCode":code,"robotPath":"C:/isolated/xbot_robot",
+        "dependencies":dependencies,"mode":"edit"
+    }})
+}
+
+#[test]
+fn activity_create_and_finish_verify_the_created_identity() {
+    for finish in [false, true] {
+        let server = MockInproc::new(move |path, body| match path {
+            "/activity/probe" => (200, json!({"ok":true,"hasStudio":false,"isBusy":false})),
+            "/activity/create" | "/activity/finish-create" => {
+                assert_eq!(
+                    path,
+                    if finish {
+                        "/activity/finish-create"
+                    } else {
+                        "/activity/create"
+                    }
+                );
+                assert_eq!(body["code"], "activity_test_library");
+                (
+                    200,
+                    activity_snapshot("Activity", "activity_test_library", json!([])),
+                )
+            }
+            "/studio/current" => (
+                200,
+                activity_snapshot("Activity", "activity_test_library", json!([])),
+            ),
+            _ => panic!("unexpected activity request {path}"),
+        });
+        let mut args = vec![
+            "activity",
+            if finish { "finish-create" } else { "create" },
+            "--name",
+            "test library",
+            "--code",
+            "activity_test_library",
+            "--description",
+            "test description",
+        ];
+        if finish {
+            args.extend(["--app-id", ACTIVITY_APP]);
+        }
+        let value = envelope(&invoke_inproc(&args, None, None, Some(&server.endpoint)), 0);
+        assert_eq!(value["data"]["verified"], true);
+        assert_eq!(value["data"]["current"]["uuid"], ACTIVITY_APP);
+    }
+}
+
+#[test]
+fn activity_consumer_creation_preserves_ordinary_type() {
+    let server = MockInproc::new(|path, _| match path {
+        "/activity/probe" => (200, json!({"ok":true,"hasStudio":false,"isBusy":false})),
+        "/activity/create-consumer" | "/studio/current" => {
+            (200, activity_snapshot("Custom", "", json!([])))
+        }
+        _ => panic!("unexpected activity request {path}"),
+    });
+    let value = envelope(
+        &invoke_inproc(
+            &[
+                "activity",
+                "create-consumer",
+                "--name",
+                "test library",
+                "--description",
+                "test description",
+            ],
+            None,
+            None,
+            Some(&server.endpoint),
+        ),
+        0,
+    );
+    assert_eq!(value["data"]["verified"], true);
+}
+
+#[test]
+fn activity_install_verifies_persisted_result_and_does_not_reload() {
+    for upgrade in [false, true] {
+        let installed = Arc::new(AtomicBool::new(false));
+        let state = Arc::clone(&installed);
+        let server = MockInproc::new(move |path, body| match path {
+            "/studio/current" => (
+                200,
+                activity_snapshot(
+                    "Custom",
+                    "",
+                    if state.load(Ordering::SeqCst) {
+                        json!(["activity_test_library==2.0", "activity_other==7"])
+                    } else if upgrade {
+                        json!(["activity_test_library==1.0", "activity_other==7"])
+                    } else {
+                        json!(["activity_other==7"])
+                    },
+                ),
+            ),
+            "/activity/install-state" => (200, json!({"ok":true,"data":{"uuid":ACTIVITY_APP}})),
+            "/activity/install" => {
+                assert_eq!(body["appId"], ACTIVITY_APP);
+                assert_eq!(body["code"], "activity_test_library");
+                assert_eq!(body["upgrade"], upgrade);
+                state.store(true, Ordering::SeqCst);
+                (
+                    200,
+                    json!({"ok":true,"data":{"appId":ACTIVITY_APP,"activityCode":"activity_test_library","version":"2.0","installedVersion":"2.0","dependencies":["activity_test_library==2.0","activity_other==7"]}}),
+                )
+            }
+            _ => panic!("unexpected activity request {path}"),
+        });
+        let mut args = vec![
+            "activity",
+            "install",
+            "--app-id",
+            ACTIVITY_APP,
+            "--activity-code",
+            "activity_test_library",
+            "--version",
+            "2.0",
+            "--name",
+            "test library",
+        ];
+        if upgrade {
+            args.push("--upgrade");
+        }
+        let value = envelope(&invoke_inproc(&args, None, None, Some(&server.endpoint)), 0);
+        assert_eq!(value["data"]["verified"], true);
+        assert_eq!(
+            server
+                .calls()
+                .iter()
+                .filter(|r| r["path"] == "/activity/install")
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn activity_offline_and_dangerous_inputs_never_write() {
+    let valid = [
+        "activity",
+        "create",
+        "--name",
+        "test",
+        "--code",
+        "activity_test_library",
+        "--description",
+        "test",
+    ];
+    let value = envelope(&invoke(&valid, None, None), 4);
+    assert_eq!(value["error"]["code"], "INPROC_OFFLINE");
+    for code in [
+        "activity_a",
+        "activity_deadbeef",
+        "../escape",
+        "activity_bad/name",
+    ] {
+        let value = envelope(
+            &invoke(
+                &[
+                    "activity",
+                    "create",
+                    "--name",
+                    "test",
+                    "--code",
+                    code,
+                    "--description",
+                    "test",
+                ],
+                None,
+                None,
+            ),
+            2,
+        );
+        assert_eq!(value["error"]["code"], "BAD_INPUT");
+    }
+    for version in ["..", ".", "latest", "2==3", "../2"] {
+        let value = envelope(
+            &invoke(
+                &[
+                    "activity",
+                    "install",
+                    "--app-id",
+                    ACTIVITY_APP,
+                    "--activity-code",
+                    "activity_test",
+                    "--name",
+                    "test",
+                    "--version",
+                    version,
+                ],
+                None,
+                None,
+            ),
+            2,
+        );
+        assert_eq!(value["error"]["code"], "BAD_INPUT");
+    }
+    let value = envelope(
+        &invoke(
+            &[
+                "activity",
+                "metadata-apply",
+                "--app-id",
+                ACTIVITY_APP,
+                "--root",
+                "C:/isolated",
+                "--manifest",
+                "-",
+            ],
+            Some("{\"main.py\":\"bad\"}"),
+            None,
+        ),
+        2,
+    );
+    assert_eq!(value["error"]["code"], "BAD_INPUT");
+}
+
+#[test]
+fn activity_all_writes_fail_closed_and_preview_offline() {
+    let commands = vec![
+        vec![
+            "activity",
+            "create",
+            "--name",
+            "test",
+            "--code",
+            "activity_test",
+            "--description",
+            "test",
+        ],
+        vec![
+            "activity",
+            "finish-create",
+            "--app-id",
+            ACTIVITY_APP,
+            "--name",
+            "test",
+            "--code",
+            "activity_test",
+            "--description",
+            "test",
+        ],
+        vec![
+            "activity",
+            "create-consumer",
+            "--name",
+            "test",
+            "--description",
+            "test",
+        ],
+        vec![
+            "activity",
+            "install",
+            "--app-id",
+            ACTIVITY_APP,
+            "--activity-code",
+            "activity_test",
+            "--name",
+            "test",
+            "--version",
+            "2.0",
+        ],
+        vec![
+            "activity",
+            "metadata-apply",
+            "--app-id",
+            ACTIVITY_APP,
+            "--root",
+            "C:/isolated",
+            "--manifest",
+            "-",
+        ],
+    ];
+    for mut args in commands {
+        let input = Some("{\"prototype.block.json\":{\"blocks\":[]}}");
+        let value = envelope(&invoke(&args, input, None), 4);
+        assert_eq!(value["error"]["code"], "INPROC_OFFLINE");
+        args.push("--dry-run");
+        let value = envelope(&invoke(&args, input, None), 0);
+        assert_eq!(value["data"]["transport"], "inproc");
+    }
+}
+
+#[test]
+fn activity_metadata_manifest_goes_through_bridge_and_reports_backup() {
+    let server = MockInproc::new(|path, body| match path {
+        "/activity/probe" => (200, json!({"ok":true,"hasStudio":false,"isBusy":false})),
+        "/activity/metadata-apply" => {
+            assert_eq!(body["appId"], ACTIVITY_APP);
+            assert_eq!(body["files"], json!({"prototype.block.json":{"blocks":[]}}));
+            (
+                200,
+                json!({"ok":true,"data":{"appId":ACTIVITY_APP,"backup":"C:/temp/metadata-backup","files":["prototype.block.json"],"verification":"disk_readback"}}),
+            )
+        }
+        _ => panic!("unexpected metadata route {path}"),
+    });
+    let value = envelope(
+        &invoke_inproc(
+            &[
+                "activity",
+                "metadata-apply",
+                "--app-id",
+                ACTIVITY_APP,
+                "--root",
+                "C:/isolated",
+                "--manifest",
+                "-",
+            ],
+            Some("{\"prototype.block.json\":{\"blocks\":[]}}"),
+            None,
+            Some(&server.endpoint),
+        ),
+        0,
+    );
+    assert_eq!(value["data"]["result"]["verification"], "disk_readback");
+}
+
+#[test]
+fn activity_preflight_rejects_busy_context_and_wrong_uuid_before_post() {
+    for mismatch in [false, true] {
+        let server = MockInproc::new(move |path, _| match path {
+            "/activity/probe" => (200, json!({"ok":true,"hasStudio":true,"isBusy":false})),
+            "/studio/current" => {
+                let mut snapshot = activity_snapshot("Activity", "activity_test", json!([]));
+                snapshot["data"]["uuid"] = json!("22222222-2222-2222-2222-222222222222");
+                (200, snapshot)
+            }
+            _ => panic!("preflight must not write {path}"),
+        });
+        let args = if mismatch {
+            vec![
+                "activity",
+                "finish-create",
+                "--app-id",
+                ACTIVITY_APP,
+                "--name",
+                "test",
+                "--code",
+                "activity_test",
+                "--description",
+                "test",
+            ]
+        } else {
+            vec![
+                "activity",
+                "create",
+                "--name",
+                "test",
+                "--code",
+                "activity_test",
+                "--description",
+                "test",
+            ]
+        };
+        let value = envelope(&invoke_inproc(&args, None, None, Some(&server.endpoint)), 5);
+        assert_eq!(
+            value["error"]["code"],
+            if mismatch {
+                "APP_MISMATCH"
+            } else {
+                "STUDIO_BUSY"
+            }
+        );
+        assert!(!server.calls().iter().any(|r| r["method"] == "POST"));
+    }
+}
+
+#[test]
+fn activity_install_rejects_stale_success_or_lost_write_response() {
+    for lost in [false, true] {
+        let server = MockInproc::new(move |path, _| match path {
+            "/studio/current" => (200, activity_snapshot("Custom", "", json!([]))),
+            "/activity/install-state" => (200, json!({"ok":true,"data":{"uuid":ACTIVITY_APP}})),
+            "/activity/install" => {
+                if lost {
+                    (0, json!({}))
+                } else {
+                    (
+                        200,
+                        json!({"ok":true,"data":{"appId":ACTIVITY_APP,"activityCode":"activity_test","version":"2","installedVersion":"1","dependencies":[]}}),
+                    )
+                }
+            }
+            _ => panic!("unexpected installation route {path}"),
+        });
+        let value = envelope(
+            &invoke_inproc(
+                &[
+                    "activity",
+                    "install",
+                    "--app-id",
+                    ACTIVITY_APP,
+                    "--activity-code",
+                    "activity_test",
+                    "--name",
+                    "test",
+                    "--version",
+                    "2",
+                ],
+                None,
+                None,
+                Some(&server.endpoint),
+            ),
+            if lost { 6 } else { 1 },
+        );
+        assert_eq!(
+            value["error"]["code"],
+            if lost {
+                "INPROC_WRITE_UNKNOWN"
+            } else {
+                "ACTIVITY_VERIFY_FAILED"
+            }
+        );
+        assert_eq!(value["error"]["retryable"], false);
+        assert_eq!(
+            server
+                .calls()
+                .iter()
+                .filter(|r| r["path"] == "/activity/install")
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn activity_expect_app_uses_the_inproc_identity() {
+    let server = MockInproc::new(|path, _| match path {
+        "/studio/current" => (200, activity_snapshot("Custom", "", json!([]))),
+        _ => panic!("unexpected assertion request {path}"),
+    });
+    let value = envelope(
+        &invoke_inproc(
+            &[
+                "activity",
+                "install",
+                "--app-id",
+                ACTIVITY_APP,
+                "--activity-code",
+                "activity_test",
+                "--name",
+                "test",
+                "--version",
+                "2",
+                "--expect-app",
+                "22222222-2222-2222-2222-222222222222",
+            ],
+            None,
+            None,
+            Some(&server.endpoint),
+        ),
+        5,
+    );
+    assert_eq!(value["error"]["code"], "APP_MISMATCH");
+    assert!(!server.calls().iter().any(|r| r["method"] == "POST"));
+}
+
+#[test]
+fn activity_current_can_assert_a_read_only_workspace_identity() {
+    let server = MockInproc::new(|path, _| {
+        assert_eq!(path, "/studio/current");
+        let mut snapshot = activity_snapshot("Activity", "activity_test", json!([]));
+        snapshot["data"]["mode"] = json!("view");
+        (200, snapshot)
+    });
+    let value = envelope(
+        &invoke_inproc(
+            &["activity", "current", "--expect-app", ACTIVITY_APP],
+            None,
+            None,
+            Some(&server.endpoint),
+        ),
+        0,
+    );
+    assert_eq!(value["data"]["data"]["mode"], "view");
+}
+
+#[test]
+fn activity_install_refuses_running_engine_before_any_write() {
+    let server = MockInproc::new(|path, _| match path {
+        "/studio/current" => (200, activity_snapshot("Custom", "", json!([]))),
+        "/activity/install-state" => (
+            200,
+            json!({"ok":false,"detail":"activity installation requires a confirmed idle engine; status=Running"}),
+        ),
+        _ => panic!("busy engine must not receive {path}"),
+    });
+    let value = envelope(
+        &invoke_inproc(
+            &[
+                "activity",
+                "install",
+                "--app-id",
+                ACTIVITY_APP,
+                "--activity-code",
+                "activity_test",
+                "--name",
+                "test",
+                "--version",
+                "2",
+            ],
+            None,
+            None,
+            Some(&server.endpoint),
+        ),
+        1,
+    );
+    assert_eq!(value["error"]["code"], "INPROC_FAILED");
+    assert_eq!(value["error"]["retryable"], false);
+    assert!(!server.calls().iter().any(|r| r["method"] == "POST"));
+}
+
 fn read_bridge_frame(file: &mut std::fs::File) -> std::io::Result<Value> {
     let mut length = [0_u8; 4];
     file.read_exact(&mut length)?;

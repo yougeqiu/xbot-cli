@@ -162,6 +162,19 @@ internal static class HttpHost
         {
             WriteJson(ctx,200,StudioActions.ProbeInstallState()); return;
         }
+        if (method == "POST" && path == "/activity/metadata-apply")
+        {
+            try
+            {
+                using var reader=new StreamReader(req.InputStream,req.ContentEncoding);
+                using var document=JsonDocument.Parse(reader.ReadToEnd());
+                var root=document.RootElement;
+                var result=ActivityActions.ApplyMetadata(root.GetProperty("appId").GetString(),root.GetProperty("root").GetString(),root.GetProperty("files"));
+                WriteJson(ctx,200,result);
+            }
+            catch(Exception ex) { WriteJson(ctx,ex is ArgumentException||ex is JsonException?400:500,new{ok=false,detail=ex.GetBaseException().Message}); }
+            return;
+        }
         if (method == "POST" && path == "/activity/create")
         {
             if (!string.IsNullOrEmpty(req.Headers["Origin"])) { WriteJson(ctx,403,new {ok=false,detail="browser-origin request rejected"}); return; }

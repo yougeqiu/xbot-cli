@@ -685,6 +685,11 @@ internal static class StudioActions
                     name = Get("Name"),
                     uuid = Get("UUID"),
                     robotPath = Get("RobotPath"),
+                    description = Get("Description"),
+                    robotType = wsType.GetProperty("RobotType")?.GetValue(workspace)?.ToString(),
+                    activityCode = Get("ActivityCode"),
+                    dependencies = wsType.GetProperty("InternalDependencies")?.GetValue(workspace),
+                    mode = WorkspaceMode(workspace),
                     appVersionId = Get("AppVersionId"),
                     version = Get("Version"),
                     startup = startupName,
@@ -705,6 +710,7 @@ internal static class StudioActions
             var workspace = GetField(FindToolBarVm(), "_workspace")
                 ?? throw new InvalidOperationException("created activity workspace unavailable; inspect before retrying");
             var type = workspace.GetType();
+            if (WorkspaceMode(workspace) != "edit") throw new InvalidOperationException("activity requires edit mode");
             object Read(string key) => type.GetProperty(key)?.GetValue(workspace);
             if ((string)Read("UUID") != uuid || !string.Equals(Read("RobotType")?.ToString(), "Activity", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("new workspace identity/type does not match the created activity");
@@ -767,7 +773,8 @@ internal static class StudioActions
 
     internal static Result InstallActivity(string appId, string code, string version, string name, bool upgrade = false)
     {
-        if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(version) || string.IsNullOrWhiteSpace(name))
+        if (!Guid.TryParseExact(appId,"D",out _) || !System.Text.RegularExpressions.Regex.IsMatch(code??"","^activity_[a-z][a-z0-9_]*$") ||
+            !System.Text.RegularExpressions.Regex.IsMatch(version??"","^[0-9][A-Za-z0-9_.-]*$") || string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("activity code, version and name are required");
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(150));
         var token = deadline.Token;
@@ -781,6 +788,7 @@ internal static class StudioActions
             if (workspace.GetType().GetProperty("UUID")?.GetValue(workspace) as string != appId ||
                 originalWorkspace != null && !ReferenceEquals(workspace, originalWorkspace))
                 throw new InvalidOperationException("current consumer UUID mismatch");
+            if (WorkspaceMode(workspace) != "edit") throw new InvalidOperationException("installation requires edit mode");
             ActivityInstallGuard.RequireIdle(GetField(toolbar, "_engineManager"));
             token.ThrowIfCancellationRequested();
             return workspace;
@@ -810,16 +818,7 @@ internal static class StudioActions
                 var repository = type.GetProperty("ActivityRepository").GetValue(workspace);
                 if (!(bool)repository.GetType().GetMethod("VerifyInstalled").Invoke(repository, new object[] {code,version}))
                     throw new InvalidOperationException("installed activity version verification failed");
-                type.GetMethod("NotifyActivityAdd", new[] {typeof(string),typeof(string)}).Invoke(workspace, new object[] {code,version});
-                // Download completion alone does not dirty the package document. Without the
-                // native change notification, Save can retain the previous dependency pin.
-                var changed = type.GetMethod("RaiseWorkspaceChanged");
-                changed.Invoke(workspace, new object[] {
-                    Enum.Parse(changed.GetParameters()[0].ParameterType, upgrade ? "ActivityUpdated" : "ActivityInstalled"), true});
-                type.GetMethod("Save", Type.EmptyTypes).Invoke(workspace, null);
-                return type.GetMethod("WaitPythonTaskCenterIdle", BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance)
-                    .Invoke(workspace, new object[] {token}) as Task
-                    ?? throw new InvalidOperationException("dependency completion task unavailable");
+                return ActivityInstallGuard.NotifySaveAndWait(workspace,code,version,upgrade,token);
             });
             settle.WaitAsync(token).GetAwaiter().GetResult();
             if (settle.GetType().GetProperty("Result")?.GetValue(settle) is bool complete && !complete)
@@ -1363,6 +1362,16 @@ internal static class StudioActions
             if (found != null) return found;
         }
         return null;
+    }
+
+    internal static string WorkspaceMode(object workspace)
+    {
+        var type=workspace.GetType();
+        var uuid=type.GetProperty("UUID")?.GetValue(workspace) as string;
+        var path=type.GetProperty("RobotPath")?.GetValue(workspace) as string;
+        if(string.IsNullOrEmpty(uuid)||string.IsNullOrEmpty(path))return "unknown";
+        return path.Split(new[]{'\\','/'},StringSplitOptions.RemoveEmptyEntries)
+            .Any(p=>string.Equals(p,uuid+"_temp",StringComparison.OrdinalIgnoreCase))?"view":"edit";
     }
 
     private static T OnUi<T>(Func<T> work)
