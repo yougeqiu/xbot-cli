@@ -4,7 +4,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use crate::core::{self, BackendError, Res};
 use crate::{flow_cmds, input};
@@ -225,9 +225,23 @@ fn sync_outcome(app_id: &str, call: Res<Value>, closed: bool, uploaded: bool) ->
 }
 
 pub fn app_publish(app_id: &str, log: Option<&str>) -> Res<CmdOut> {
-    // Snapshot identities before publishing. A matching historical log is not a new release.
+    // Snapshot identities and logs before publishing. 指令库等场景下 sync 已先建好
+    // 版本,publish 只回写 versionLog——同 versionId 的日志变化也算发布确认。
     let baseline = versions_of(app_id)?;
-    let known: HashSet<String> = baseline.iter().filter_map(version_key).collect();
+    let known: HashMap<String, Option<String>> = baseline
+        .iter()
+        .filter_map(|version| {
+            version_key(version).map(|key| {
+                (
+                    key,
+                    version
+                        .get("versionLog")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                )
+            })
+        })
+        .collect();
     if baseline
         .iter()
         .any(|version| version_key(version).is_none())
@@ -294,11 +308,24 @@ fn version_key(version: &Value) -> Option<String> {
     None
 }
 
-fn is_new_release(version: &Value, known: &HashSet<String>, log: Option<&str>) -> bool {
-    version_key(version).is_some_and(|key| !known.contains(&key))
-        && log.filter(|s| !s.is_empty()).is_none_or(|expected| {
-            version.get("versionLog").and_then(Value::as_str) == Some(expected)
-        })
+fn is_new_release(
+    version: &Value,
+    known: &HashMap<String, Option<String>>,
+    log: Option<&str>,
+) -> bool {
+    let Some(key) = version_key(version) else {
+        return false;
+    };
+    let expected = log.filter(|s| !s.is_empty());
+    let log_matches =
+        expected.is_none_or(|e| version.get("versionLog").and_then(Value::as_str) == Some(e));
+    if !log_matches {
+        return false;
+    }
+    match known.get(&key) {
+        None => true,
+        Some(old_log) => expected.is_some() && old_log.as_deref() != expected,
+    }
 }
 
 fn versions_of(app_id: &str) -> Res<Vec<Value>> {
@@ -494,7 +521,7 @@ mod tests {
     #[test]
     fn publish_requires_new_identity_even_when_log_is_reused() {
         let old = json!({"versionId":"old-id","version":"1.0","versionLog":"same log"});
-        let known = HashSet::from([version_key(&old).unwrap()]);
+        let known = HashMap::from([(version_key(&old).unwrap(), Some("same log".to_string()))]);
         assert!(!is_new_release(&old, &known, Some("same log")));
         assert!(is_new_release(
             &json!({"versionId":"new-id","versionLog":"same log"}),
@@ -510,6 +537,35 @@ mod tests {
             &json!({"versionLog":"same log"}),
             &known,
             Some("same log")
+        ));
+    }
+
+    #[test]
+    fn publish_confirms_when_sync_created_version_and_publish_only_updates_log() {
+        // 指令库流程:app sync 先建版本(空日志),app publish 只回写 versionLog,
+        // versionId 不变——必须把"已知版本的日志被改成目标值"也算确认。
+        let synced = json!({"versionId":"v-id","version":"26.11.2","versionLog":""});
+        let known = HashMap::from([(version_key(&synced).unwrap(), Some(String::new()))]);
+        assert!(is_new_release(
+            &json!({"versionId":"v-id","version":"26.11.2","versionLog":"release note"}),
+            &known,
+            Some("release note")
+        ));
+        // 同一版本重复发布同样的日志不算新发布
+        let known_same = HashMap::from([(
+            version_key(&synced).unwrap(),
+            Some("release note".to_string()),
+        )]);
+        assert!(!is_new_release(
+            &json!({"versionId":"v-id","version":"26.11.2","versionLog":"release note"}),
+            &known_same,
+            Some("release note")
+        ));
+        // 无 --log 时无法观测已存在版本的变化,不误报确认
+        assert!(!is_new_release(
+            &json!({"versionId":"v-id","version":"26.11.2","versionLog":"release note"}),
+            &known_same,
+            None
         ));
     }
 }
