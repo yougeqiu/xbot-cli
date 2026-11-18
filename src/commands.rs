@@ -68,6 +68,7 @@ pub fn execute(group: Group, yes: bool) -> Res<CmdOut> {
             FlowSub::Get { flow_id } => f::flow_get(flow_id.as_deref()),
             FlowSub::Params(params) => match params {
                 FlowParamsSub::List { flow_id } => f::flow_params(flow_id.as_deref()),
+                FlowParamsSub::Copy { flow_id, from } => f::flow_params_copy(&flow_id, &from),
                 FlowParamsSub::Set {
                     flow_id,
                     operations,

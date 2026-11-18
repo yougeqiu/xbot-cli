@@ -52,10 +52,10 @@ fn dispatch(cli: Cli, mut path: Vec<String>) -> Res<app_cmds::CmdOut> {
         );
     }
     if let Some(id) = cli.expect_app.as_deref() {
-        if !core::is_uuid(id) {
+        if !core::is_app_id(id) {
             return Err(BackendError::new(
                 "BAD_APP_ID",
-                "--expect-app 必须是应用 UUID",
+                "--expect-app 应用 ID 格式无效",
             ));
         }
     }

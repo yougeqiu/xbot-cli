@@ -139,6 +139,28 @@ pub fn flow_params(flow_id: Option<&str>) -> Res<CmdOut> {
     ))
 }
 
+pub fn flow_params_copy(target: &str, source: &str) -> Res<CmdOut> {
+    let app_id = core::require_current_edit_mode()?;
+    let source = core::resolve_flow_id(Some(source), None)?;
+    let target = core::resolve_flow_id(Some(target), Some("code"))?;
+    if source == target {
+        return Err(BackendError::new("BAD_ARGS", "源流程和目标流程必须不同"));
+    }
+    let baseline = core::mcp("flow.list_parameters", json!({"flow_id":source}), 30)?;
+    let source_name = baseline.get("flow_name").and_then(Value::as_str)
+        .ok_or_else(|| BackendError::new("PARAMETER_COPY_SOURCE", "源流程参数回读缺少流程名称"))?;
+    let target_info = core::mcp("flow.list_parameters", json!({"flow_id":target}), 30)?;
+    let target_name = target_info.get("flow_name").and_then(Value::as_str)
+        .ok_or_else(|| BackendError::new("PARAMETER_COPY_TARGET", "目标流程参数回读缺少流程名称"))?;
+    crate::inproc::client::ensure_bridge()?;
+    let copied = crate::inproc::client::post("/studio/parameters/copy", &json!({"appId":app_id,"source":source_name,"target":target_name}), 30)?;
+    let actual = core::mcp("flow.list_parameters", json!({"flow_id":target}), 30)?;
+    if baseline.get("items") != actual.get("items") {
+        return Err(BackendError::new("PARAMETER_COPY_MISMATCH", "克隆后参数回读与源参数不一致").with_data(json!({"write":copied,"parameters":actual})));
+    }
+    Ok((json!({"copy":copied,"parameters":actual}), vec![]))
+}
+
 pub fn flow_params_set(flow_id: Option<&str>, operations: &str) -> Res<CmdOut> {
     flow_params_set_prepared(flow_id, input::flow_parameters(operations)?)
 }

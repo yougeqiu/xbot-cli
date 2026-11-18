@@ -156,8 +156,8 @@ fn nonempty(value: &str, name: &str) -> Res<()> {
 }
 
 fn app_target(id: &str) -> Res<Value> {
-    if !core::is_uuid(id) {
-        return Err(BackendError::new("BAD_APP_ID", "app_id 必须是 UUID"));
+    if !core::is_app_id(id) {
+        return Err(BackendError::new("BAD_APP_ID", "app_id 格式无效"));
     }
     Ok(json!({"app_id": id}))
 }
@@ -438,6 +438,11 @@ fn describe(group: &Group) -> Res<Option<Value>> {
         Group::Flow(FlowSub::Create { name, kind }) => {
             nonempty(name, "name")?;
             ("flow.create", json!({"name": name}), json!({"kind": kind}))
+        }
+        Group::Flow(FlowSub::Params(FlowParamsSub::Copy { flow_id, from })) => {
+            nonempty(flow_id, "flow_id")?;
+            nonempty(from, "from")?;
+            ("flow.params.copy", json!({"flow_id":flow_id}), json!({"source_flow_id":from,"require_empty_target":true}))
         }
         Group::Flow(FlowSub::Run { flow_id, timeout }) => (
             "flow.run",

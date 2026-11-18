@@ -101,7 +101,7 @@ pub fn command_metadata(path: &[&str]) -> CommandMetadata {
         ["flow", "run" | "verify"] => (&["execute"], "studio", true, "none"),
         ["flow", "stop"] => (&["stop_execution"], "studio", true, "none"),
         ["flow", "create"]
-        | ["flow", "params", "set"]
+        | ["flow", "params", "set" | "copy"]
         | ["flow", "code", "write" | "edit"]
         | ["flow", "visual", "edit" | "fill" | "toggle" | "enable" | "disable"] => {
             (&["write"], "studio", true, "none")

@@ -250,6 +250,21 @@ internal static class HttpHost
             WriteJson(ctx,result.ok?200:500,result);return;
         }
 
+        if (method == "POST" && path == "/studio/parameters/copy")
+        {
+            if (!string.IsNullOrEmpty(req.Headers["Origin"])) { WriteJson(ctx,403,new {ok=false,detail="browser-origin request rejected"}); return; }
+            try
+            {
+                using var reader = new StreamReader(req.InputStream, req.ContentEncoding);
+                using var document = JsonDocument.Parse(reader.ReadToEnd());
+                var root = document.RootElement;
+                var result = StudioActions.CopyFlowParameters(root.GetProperty("appId").GetString(), root.GetProperty("source").GetString(), root.GetProperty("target").GetString());
+                WriteJson(ctx, result.ok ? 200 : 500, result);
+            }
+            catch (Exception error) { WriteJson(ctx,400,new {ok=false,detail=error.GetBaseException().Message}); }
+            return;
+        }
+
         if (method == "POST" && path == "/studio/codeflow/source")
         {
             // Replace one CodeFlow's in-memory source AND its .py on disk in a

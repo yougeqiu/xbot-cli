@@ -1021,6 +1021,37 @@ internal static class StudioActions
     /// guards: CodeFlow only, no clobbering an editor tab with unsaved edits,
     /// optional expectMd5 must match the current in-memory source.
     /// </summary>
+    internal static Result CopyFlowParameters(string appId, string sourceName, string targetName)
+    {
+        try
+        {
+            return OnUi(() =>
+            {
+                var vm = FindToolBarVm();
+                var workspace = vm == null ? null : GetField(vm, "_workspace");
+                if (workspace == null) return new Result(false, "no live workspace");
+                var path = workspace.GetType().GetProperty("RobotPath")?.GetValue(workspace) as string;
+                var package = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(path, "package.json")));
+                using (package)
+                    if (package.RootElement.GetProperty("uuid").GetString() != appId)
+                        return new Result(false, "workspace identity mismatch");
+                var flows = (workspace.GetType().GetProperty("Flows")?.GetValue(workspace) as IEnumerable)?.Cast<object>().ToArray();
+                object Find(string name) => flows?.SingleOrDefault(flow => (string)flow.GetType().GetProperty("Name")?.GetValue(flow) == name);
+                var source = Find(sourceName);
+                var target = Find(targetName);
+                if (source == null || target == null || target.GetType().Name != "CodeFlow")
+                    return new Result(false, "source missing or target is not CodeFlow");
+                var sourceParameters = source.GetType().GetProperty("Parameters").GetValue(source) as IList;
+                var targetParameters = target.GetType().GetProperty("Parameters").GetValue(target) as IList;
+                if (sourceParameters == null || targetParameters == null) return new Result(false, "parameter collections unavailable");
+                var count = FlowParameterTransfer.CopyToEmpty(sourceParameters, targetParameters);
+                target.GetType().GetMethod("Save", BindingFlags.Public | BindingFlags.Instance)?.Invoke(target, null);
+                return new Result(true, "parameters copied; save and readback required", new {source=sourceName,target=targetName,count});
+            });
+        }
+        catch (Exception error) { return new Result(false, error.GetBaseException().Message); }
+    }
+
     internal static Result SetCodeFlowSource(string flowName, string source, string expectMd5)
     {
         try

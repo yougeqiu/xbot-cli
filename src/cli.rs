@@ -293,6 +293,12 @@ pub(crate) enum FlowSub {
 pub(crate) enum FlowParamsSub {
     /// 查看流程参数
     List { flow_id: Option<String> },
+    /// 将现有流程的完整参数克隆到空的 CodeFlow，保留专用类型和空默认值。
+    Copy {
+        flow_id: String,
+        #[arg(long)]
+        from: String,
+    },
     /// 添加、更新或删除流程参数
     Set {
         flow_id: Option<String>,

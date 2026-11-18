@@ -224,6 +224,16 @@ pub fn is_uuid(s: &str) -> bool {
     true
 }
 
+/// 客户端也支持历史指令库的字母数字应用标识，分段格式与 UUID 一致。
+pub fn is_app_id(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    bytes.len() == 36
+        && bytes.iter().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => *byte == b'-',
+            _ => byte.is_ascii_alphanumeric(),
+        })
+}
+
 pub fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
         s.to_string()
@@ -235,10 +245,10 @@ pub fn truncate(s: &str, n: usize) -> String {
 // ---------- URL 协议(只读 View 模式) ----------
 
 pub fn url_open_app(app_id: &str) -> Res<()> {
-    if !is_uuid(app_id) {
+    if !is_app_id(app_id) {
         return Err(BackendError::new(
             "BAD_APP_ID",
-            format!("app-id 必须是 UUID: {app_id}"),
+            format!("app-id 格式无效: {app_id}"),
         ));
     }
     Command::new("cmd")
@@ -258,11 +268,20 @@ pub fn url_open_app(app_id: &str) -> Res<()> {
 /// studio open --app-id:以编辑模式打开已有应用到 Studio(可保存/同步/发布)。
 /// studio_already_open 时返回 {"already_open": true}。
 pub fn edit_open_app(app_id: &str, timeout_secs: u64) -> Res<Value> {
-    if !is_uuid(app_id) {
+    if !is_app_id(app_id) {
         return Err(BackendError::new(
             "BAD_APP_ID",
-            format!("app-id 必须是 UUID: {app_id}"),
+            format!("app-id 格式无效: {app_id}"),
         ));
+    }
+    if !is_uuid(app_id) {
+        let response = ureq::AgentBuilder::new()
+            .timeout(Duration::from_secs(timeout_secs))
+            .build()
+            .post("http://127.0.0.1:42500/api/v1/operator/app/open-studio")
+            .send_json(json!({"AppId":app_id}))
+            .map_err(|error| BackendError::new("APP_OPEN_FAILED", error.to_string()))?;
+        return response.into_json().map_err(|error| BackendError::new("APP_OPEN_RESPONSE", error.to_string()));
     }
     match shell_cli(&["studio", "open", "--app-id", app_id], timeout_secs) {
         Ok(d) => Ok(d),
@@ -339,7 +358,7 @@ pub fn require_current_app_id() -> Res<String> {
 fn app_id_from_info(info: &Value) -> Res<String> {
     info.pointer("/app/app_id")
         .and_then(Value::as_str)
-        .filter(|id| is_uuid(id))
+        .filter(|id| is_app_id(id))
         .map(str::to_owned)
         .ok_or_else(|| {
             BackendError::new("MCP_BAD_RESPONSE", "app.get_info 缺少有效 app_id")
@@ -549,6 +568,20 @@ pub fn json_arg(raw: &str) -> Res<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_developed_app_id_is_read_from_workspace_info() {
+        let id = "v15dbwdn-2a7z-m4h5-ff2q-nrfimobhfrh9";
+        assert!(!is_uuid(id));
+        assert_eq!(app_id_from_info(&json!({"app":{"app_id":id}})).unwrap(), id);
+    }
+
+    #[test]
+    fn workspace_app_id_rejects_paths_and_malformed_identifiers() {
+        for id in ["../other", "v15dbwdn/2a7z-m4h5-ff2q-nrfimobhfrh9", "v15dbwdn-2a7z-m4h5-ff2q-nrfimobhfrh/"] {
+            assert!(app_id_from_info(&json!({"app":{"app_id":id}})).is_err());
+        }
+    }
 
     #[test]
     fn missing_current_app_cannot_pass_write_precondition() {
