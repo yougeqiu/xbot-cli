@@ -97,7 +97,7 @@ fn activity_code(value: &str, creating: bool) -> Res<()> {
     let suffix = value.strip_prefix("activity_").unwrap_or("");
     if suffix.is_empty()
         || creating && suffix.len() < 2
-        || !suffix.as_bytes()[0].is_ascii_lowercase()
+        || creating && !suffix.as_bytes()[0].is_ascii_lowercase()
         || !suffix
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')

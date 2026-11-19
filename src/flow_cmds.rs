@@ -337,7 +337,7 @@ fn run_finished(state: &Value) -> bool {
     state
         .get("terminal_status")
         .and_then(Value::as_str)
-        .is_some_and(|s| !s.is_empty())
+        .is_some_and(|s| !s.is_empty() && s != "running")
         || matches!(
             state.get("status").and_then(Value::as_str),
             Some("finish")
